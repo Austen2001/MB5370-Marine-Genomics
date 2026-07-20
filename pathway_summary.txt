@@ -1,0 +1,14 @@
+PWY-101 photosynthesis light reactions:
+Detected in metabat.12, metabat.29, metabat.33 and metabat.61.
+Only metabat.29 contained all 4 of 4 gene families.
+GTDB-Tk classified metabat.29 as Roseofilum reptotaenium_A, family Desertifilaceae.
+
+PWY-5360 tetrathionate reduction:
+Detected only in metabat.57.
+The bin contained 1 of 3 gene families and MinPath did not retain the complete pathway.
+GTDB-Tk classified metabat.57 in the family Arcobacteraceae, genus Halarcobacter.
+
+Prokka:
+Total genes identified: 17,956
+Genes with EC numbers: 4,702
+EC annotation percentage: 26.19%
