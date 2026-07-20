@@ -1,56 +1,75 @@
 ---
-title: "Workshop 4: Black Band Disease Metagenomics"
+title: "Black Band Disease Metagenomics"
+subtitle: "Marine Genomics – MB5370"
 author: "Austen Wong Won"
-date: "2026-07-16"
+date: "20 July 2026"
 output:
   html_document:
     toc: true
     toc_float: true
+    number_sections: true
     theme: flatly
-    code_folding: show
+    highlight: tango
+    code_folding: hide
+    df_print: paged
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(
   echo = TRUE,
   message = FALSE,
-  warning = FALSE
+  warning = FALSE,
+  fig.width = 8,
+  fig.height = 5,
+  out.width = "100%"
 )
+
+options(knitr.kable.NA = "")
 ```
 
-# Overview
+# Background
 
-This workshop used a genome-resolved metagenomics workflow to investigate microbial communities associated with a black band disease sample. The workflow included metagenome assembly, genome binning, bin quality assessment, taxonomic classification, and later functional annotation.
+## Why black band disease matters
 
-The main aim was to move from raw Nanopore metagenomic reads to draft genome bins that could be assessed for quality and used to explore the microbial taxa and potential functions present in the sample.
+Black band disease (BBD) is a coral disease caused by a dense microbial mat that moves across living coral tissue. The mat is usually dominated by cyanobacteria, but it also contains sulfur-cycling and heterotrophic bacteria. Together, these organisms can create low-oxygen and sulfide-rich conditions at the coral surface, which contributes to tissue loss as the band moves across the colony (Sato et al., 2017).
 
-This workflow is important in marine science because coral diseases are often linked to complex microbial communities. Metagenomic approaches allow researchers to investigate which organisms are present and what functional pathways may be involved in disease processes.
+BBD is important because it can cause rapid loss of live coral tissue and may become more damaging when corals are already stressed. Studying the whole microbial community is therefore more useful than looking for one pathogen. A metagenomic approach can show both **who is present** and **what metabolic functions the community may be capable of**.
 
-# Workflow Summary
+## What is already known
 
-The main steps in this workflow were:
+Previous work has shown that the BBD mat contains several broad functional groups:
 
-1. Assemble black band disease Nanopore reads using Flye.
-2. Bin assembled contigs using MetaBAT.
-3. Assess bin quality using CheckM.
-4. Classify selected bins using GTDB-Tk.
-5. Annotate genes using Prokka.
-6. Investigate metabolic pathways using MinPath.
+- **Cyanobacteria**, which carry out photosynthesis and produce organic carbon.
+- **Sulfate-reducing bacteria**, which can produce sulfide under low-oxygen conditions.
+- **Sulfur-oxidising bacteria**, which use reduced sulfur compounds.
+- **Heterotrophic bacteria**, which recycle organic matter and may support other members of the mat.
 
-At this stage, the Flye assembly, MetaBAT binning, CheckM quality assessment, and GTDB-Tk setup have been completed or submitted.
+Sato et al. (2017) recovered a near-complete cyanobacterial genome from BBD and found strong photosynthetic activity. Their study also showed that Deltaproteobacteria, including *Desulfovibrio*-related organisms, were important members of the sulfur cycle.
 
-# Step 1: Assembly with Flye
+## Aim
 
-The raw black band disease Nanopore read file was linked into the `flye` folder instead of being copied. This avoided duplicating a large sequencing file inside the project.
+The aim of this analysis was to assemble a BBD metagenome from Oxford Nanopore reads, recover draft microbial genomes, identify the main taxa, and test which bins contained genes linked to photosynthesis and sulfur cycling.
 
-```bash
-cd ~/marine-genomics
-mkdir flye
-cd flye
-ln -s /pvol/data/metagenome_assembly/bbd_0.1.fastq.gz .
-```
+The main questions were:
 
-The Flye assembly was run using a Slurm script called `run_flye_bbd.sh`.
+1. How complete and contiguous was the BBD metagenome assembly?
+2. Which microbial groups were represented in the strongest genome bins?
+3. Which bins contained evidence for photosynthesis or sulfur-related pathways?
+4. How did the results compare with the Illumina-based BBD study by Sato et al. (2017)?
+
+# Dataset
+
+The reads came from a subset of a BBD sample collected by JCU PhD student Julia Hung in 2023 from an infected *Acropora hyacinthus* colony at Orpheus Island. High molecular weight DNA was extracted and sequenced using an Oxford Nanopore MinION. A subset of the full dataset was used for this workshop because the complete dataset would require more computing resources than were available for the class exercise.
+
+I worked in a GitHub repository called `marine-genomics` and ran the main analyses through the JCU RStudio server using Slurm job scripts.
+
+# Processing log
+
+This section includes the main commands used to generate and interpret the assembly. Routine commands used only to move between folders or inspect files have been left out.
+
+## Flye assembly
+
+Flye was selected because it is designed for long-read assembly and has a metagenome mode for mixed microbial communities.
 
 ```bash
 #!/bin/bash
@@ -59,126 +78,45 @@ The Flye assembly was run using a Slurm script called `run_flye_bbd.sh`.
 
 echo "Starting flye bbd in $(pwd) at $(date)"
 
-flye --nano-hq bbd_0.1.fastq.gz --threads 12 --out-dir bbd --meta
+flye --nano-hq bbd_0.1.fastq.gz \
+     --threads 12 \
+     --out-dir bbd \
+     --meta
 
 echo "Finished flye bbd in $(pwd) at $(date)"
 ```
 
-The job was submitted using:
-
-```bash
-sbatch run_flye_bbd.sh
-```
-
-The Flye job completed successfully and produced the final assembly file:
-
-```text
-/home/jd135206/marine-genomics/flye/bbd/assembly.fasta
-```
-
-# Flye Assembly Results
-
-The final Flye output showed that the assembly completed successfully.
-
-```text
-Final assembly: /home/jd135206/marine-genomics/flye/bbd/assembly.fasta
-Finished flye bbd in /home/jd135206/marine-genomics/flye at Wed 15 Jul 2026 01:45:38 UTC
-```
-
-The assembly was summarised using:
+The finished assembly was summarised with:
 
 ```bash
 assembly-stats bbd/assembly.fasta
 ```
 
-The assembly statistics were:
+## MetaBAT binning
 
-```text
-sum = 66580369, n = 7972, ave = 8351.78, largest = 4706700
-N50 = 13029, n = 647
-N60 = 9051, n = 1267
-N70 = 6642, n = 2129
-N80 = 4755, n = 3318
-N90 = 3010, n = 5067
-N100 = 257, n = 7972
-N_count = 0
-Gaps = 0
-```
-
-## Assembly Interpretation
-
-The black band disease assembly had a total length of **66,580,369 bp** across **7,972 contigs**. The largest contig was **4,706,700 bp**, and the assembly N50 was **13,029 bp**.
-
-This assembly is relatively fragmented, which is expected for a real metagenomic sample. Unlike a simple isolate genome or mock community, black band disease samples contain DNA from many organisms with different abundances. This makes assembly more difficult because some genomes have high coverage while others have low coverage.
-
-# Step 2: Binning with MetaBAT
-
-After assembly, MetaBAT was used to group contigs into draft genome bins. Binning helps separate contigs that likely belong to the same organism based on coverage and sequence composition.
-
-The depth file was created from the Flye assembly information:
+MetaBAT grouped assembled contigs using coverage and sequence-composition information. The `--seed 5` option made the clustering reproducible.
 
 ```bash
-cd ~/marine-genomics
-mkdir metabat
-cd metabat
+cat ../flye/bbd/assembly_info.txt |
+  grep -v '#' |
+  awk '{OFS="\t"; print $1,$3}' > depths_bbd.txt
 
-cat ../flye/bbd/assembly_info.txt | grep -v '#' | awk '{OFS="\t";print $1,$3}' > depths_bbd.txt
+cat depths_bbd.txt |
+  awk '{print $1}' |
+  xargs samtools faidx ../flye/bbd/assembly.fasta \
+  > assembly_bbd_ordered.fasta
+
+metabat2 \
+  -i assembly_bbd_ordered.fasta \
+  -a depths_bbd.txt \
+  --cvExt \
+  -o bins_bbd/metabat \
+  --seed 5
 ```
 
-The ordered assembly file was then created:
+## CheckM bin assessment
 
-```bash
-cat depths_bbd.txt | awk '{print $1}' | xargs samtools faidx ../flye/bbd/assembly.fasta > assembly_bbd_ordered.fasta
-```
-
-MetaBAT was run using:
-
-```bash
-metabat2 -i assembly_bbd_ordered.fasta -a depths_bbd.txt --cvExt -o bins_bbd/metabat --seed 5
-```
-
-The number of bins was checked using:
-
-```bash
-ls bins_bbd/*.fa | wc -l
-```
-
-MetaBAT produced:
-
-```text
-70
-```
-
-## MetaBAT Interpretation
-
-MetaBAT produced **70 genome bins** from the black band disease metagenome assembly. These bins represent draft genome groups assembled from the mixed microbial community.
-
-Because the sample is a real coral disease-associated metagenome, not all bins are expected to be complete or high quality. The next step was therefore to assess each bin using CheckM.
-
-# Step 3: Bin Quality Assessment with CheckM
-
-CheckM was used to estimate the completeness and contamination of the MetaBAT bins. This is important because genome bins can vary in quality, especially in complex metagenomic datasets.
-
-The MetaBAT bins were copied into a CheckM folder:
-
-```bash
-cd ~/marine-genomics
-mkdir checkm
-cd checkm
-
-mkdir bins_bbd
-cp ../metabat/bins_bbd/*.fa bins_bbd/
-```
-
-The number of bins was checked again:
-
-```bash
-ls bins_bbd/*.fa | wc -l
-```
-
-This confirmed that **70 bins** were copied into the CheckM folder.
-
-CheckM was run using the script `run_checkm_bbd.sh`.
+CheckM was used to estimate completeness and contamination from lineage-specific marker genes.
 
 ```bash
 #!/bin/bash
@@ -190,131 +128,27 @@ echo "Starting checkm in $(pwd) at $(date)"
 shopt -s expand_aliases
 alias checkm='apptainer run -B /pvol/:/pvol /pvol/data/sif/checkm.sif checkm'
 
-checkm lineage_wf bins_bbd out -t 4 -x fa -f checkm_results_bbd.txt
+checkm lineage_wf \
+  bins_bbd \
+  out \
+  -t 4 \
+  -x fa \
+  -f checkm_results_bbd.txt
 
 echo "Finished checkm in $(pwd) at $(date)"
 ```
 
-The job was submitted using:
+Bins with more than 15% estimated completeness were selected for the functional analysis:
 
 ```bash
-sbatch run_checkm_bbd.sh
+awk '$13 > 15 {print $1}' \
+  checkm_results_bbd.txt \
+  > bbd_topbins.txt
 ```
 
-The CheckM job completed successfully.
+## GTDB-Tk classification
 
-```text
-Finished processing 70 of 70 (100.00%) bins.
-QA information written to: checkm_results_bbd.txt
-Finished checkm in /home/jd135206/marine-genomics/checkm at Thu 16 Jul 2026 01:33:56 UTC
-```
-
-# CheckM Results
-
-The first part of the CheckM results showed the highest quality bins:
-
-```text
-Bin Id          Marker lineage                     Completeness   Contamination
-metabat.29      p__Cyanobacteria (UID2189)          97.56          0.67
-metabat.56      o__Clostridiales (UID1120)          33.22          1.77
-metabat.57      k__Bacteria (UID3060)               30.28          0.00
-metabat.38      k__Bacteria (UID203)                29.31          0.00
-metabat.3       c__Deltaproteobacteria (UID3216)    28.18          0.13
-metabat.12      s__algicola (UID2846)               27.44          0.00
-metabat.45      p__Proteobacteria (UID3061)         26.77          0.00
-metabat.33      o__Clostridiales (UID1212)          22.60          0.00
-metabat.70      k__Bacteria (UID203)                22.41          0.00
-metabat.16      k__Bacteria (UID203)                21.55          0.00
-metabat.61      k__Bacteria (UID203)                21.43          0.00
-metabat.65      c__Deltaproteobacteria (UID3216)    20.79          0.00
-metabat.53      k__Bacteria (UID3060)               19.73          0.00
-metabat.24      k__Bacteria (UID203)                17.54          0.00
-metabat.10      k__Bacteria (UID203)                15.52          0.00
-metabat.41      c__Deltaproteobacteria (UID3218)    15.12          0.00
-```
-
-Bins with completeness above 15% were selected using:
-
-```bash
-cat checkm_results_bbd.txt | awk '$13>15{print $1}' > bbd_topbins.txt
-```
-
-The selected bins were:
-
-```text
-metabat.29
-metabat.56
-metabat.57
-metabat.38
-metabat.3
-metabat.12
-metabat.45
-metabat.33
-metabat.70
-metabat.16
-metabat.61
-metabat.65
-metabat.53
-metabat.24
-metabat.10
-metabat.41
-```
-
-## CheckM Interpretation
-
-A total of **16 bins** had completeness above 15% and were selected for downstream taxonomic classification.
-
-The strongest bin was **metabat.29**, which was assigned to a Cyanobacteria marker lineage and had **97.56% completeness** with only **0.67% contamination**. This suggests that `metabat.29` is a high-quality draft genome bin compared with the other bins.
-
-Many of the other bins had lower completeness values, which is common in complex metagenomic samples. Low completeness means that only part of the genome was recovered, but these bins can still provide useful information about microbial diversity and potential function.
-
-# Step 4: Taxonomic Classification with GTDB-Tk
-
-GTDB-Tk was used to classify the selected genome bins taxonomically.
-
-A new folder was created for GTDB-Tk:
-
-```bash
-cd ~/marine-genomics
-mkdir gtdbtk
-cd gtdbtk
-mkdir genomes
-```
-
-The selected bins were copied into the `genomes` folder:
-
-```bash
-while read bin;do cp "../metabat/bins_bbd/${bin}.fa" genomes;done < ../checkm/bbd_topbins.txt
-```
-
-The copied genomes were checked using:
-
-```bash
-ls genomes
-```
-
-The selected genome files were:
-
-```text
-metabat.10.fa
-metabat.12.fa
-metabat.16.fa
-metabat.24.fa
-metabat.29.fa
-metabat.33.fa
-metabat.38.fa
-metabat.3.fa
-metabat.41.fa
-metabat.45.fa
-metabat.53.fa
-metabat.56.fa
-metabat.57.fa
-metabat.61.fa
-metabat.65.fa
-metabat.70.fa
-```
-
-GTDB-Tk was run using the script `run_gtdbtk.sh`.
+GTDB-Tk placed the selected bins into a genome-based bacterial taxonomy.
 
 ```bash
 #!/bin/bash
@@ -326,66 +160,19 @@ echo "Starting gtdbtk in $(pwd) at $(date)"
 shopt -s expand_aliases
 alias gtdbtk='apptainer run -B /pvol:/pvol,/pvol/data/mg/gtdbtkdata/release207_v2/:/refdata /pvol/data/sif/gtdbtk.sif'
 
-gtdbtk classify_wf -x fa --cpus 2 --genome_dir genomes --out_dir out --skip_ani_screen
+gtdbtk classify_wf \
+  -x fa \
+  --cpus 2 \
+  --genome_dir genomes \
+  --out_dir out \
+  --skip_ani_screen
 
 echo "Finished gtdbtk in $(pwd) at $(date)"
 ```
 
-The job was submitted using:
+## Prokka annotation
 
-```bash
-sbatch run_gtdbtk.sh
-```
-
-The GTDB-Tk job ID was:
-
-```text
-634
-```
-
-At the time of writing, the GTDB-Tk job had been submitted and was waiting in the queue.
-
-```text
-634  run_gtdb  jd135206  PD  0:00  (None)
-```
-
-## GTDB-Tk Results
-
-GTDB-Tk results will be added here after the job finishes.
-
-The expected output file will likely be located in:
-
-```text
-gtdbtk/out/
-```
-
-Once the job finishes, the GTDB-Tk bacterial summary file can be checked using:
-
-```bash
-ls out
-```
-
-and then opened with a command similar to:
-
-```bash
-head out/gtdbtk.bac120.summary.tsv
-```
-
-# Step 5: Functional Annotation with Prokka
-
-Prokka will be used to annotate genes in the selected genome bins. This step will identify predicted genes and assign possible functions.
-
-This step has not been completed yet.
-
-The planned Prokka workflow is:
-
-```bash
-cd ~/marine-genomics
-mkdir prokka
-cd prokka
-```
-
-A Prokka script will be created to annotate each selected bin:
+Prokka predicted genes and added available functional annotations to each selected bin.
 
 ```bash
 #!/bin/bash
@@ -397,147 +184,429 @@ echo "Starting prokka in $(pwd) at $(date)"
 shopt -s expand_aliases
 alias prokka='apptainer run -B /pvol/:/pvol /pvol/data/sif/prokka.sif prokka'
 
-while read bin;do 
-  prokka --outdir $bin --prefix $bin "../metabat/bins_bbd/${bin}.fa";
+while read bin; do
+  prokka \
+    --outdir "$bin" \
+    --prefix "$bin" \
+    "../metabat/bins_bbd/${bin}.fa"
 done < ../checkm/bbd_topbins.txt
 
 echo "Finished prokka in $(pwd) at $(date)"
 ```
 
-# Step 6: Pathway Analysis with MinPath
+## MinPath pathway inference
 
-MinPath will be used after Prokka to identify metabolic pathways from EC numbers.
-
-This step has not been completed yet.
-
-The planned workflow is to extract EC numbers from the Prokka `.tsv` files and run MinPath on each selected bin.
-
-Example command:
+The EC numbers from Prokka were converted into one input file per bin. MinPath then inferred the smallest set of pathways that could explain the detected enzymes.
 
 ```bash
-while read bin;do 
-  cat ../prokka/$bin/${bin}.tsv | awk -F '\t' '$5{printf("%s\t%s\n", $1,$5)}' | grep -v '^locus' > ${bin}.ec 
+while read bin; do
+  awk -F '\t' '$5 {printf("%s\t%s\n", $1,$5)}' \
+    "../prokka/$bin/${bin}.tsv" |
+    grep -v '^locus' > "${bin}.ec"
+done < ../checkm/bbd_topbins.txt
+
+while read bin; do
+  minpath \
+    -ec "${bin}.ec" \
+    -report "${bin}.ec.report" \
+    -details "${bin}.ec.details"
 done < ../checkm/bbd_topbins.txt
 ```
 
-Then MinPath can be run using:
+The photosynthesis and tetrathionate-reduction results were checked using:
 
 ```bash
-while read bin;do 
-  minpath -ec ${bin}.ec -report ${bin}.ec.report -details ${bin}.ec.details
+grep 'PWY-101' *.ec.report
+grep 'PWY-5360' *.ec.report
+```
+
+# Results
+
+## Assembly and binning
+
+```{r assembly-summary}
+assembly_summary <- data.frame(
+  Metric = c(
+    "Total assembly length",
+    "Number of contigs",
+    "Average contig length",
+    "Largest contig",
+    "N50",
+    "MetaBAT bins",
+    "Bins selected for annotation"
+  ),
+  Result = c(
+    "66,580,369 bp",
+    "7,972",
+    "8,351.78 bp",
+    "4,706,700 bp",
+    "13,029 bp",
+    "70",
+    "16"
+  )
+)
+
+knitr::kable(
+  assembly_summary,
+  caption = "Table 1. Summary of the BBD metagenome assembly and binning results."
+)
+```
+
+The assembly was **66.58 Mb** long and contained **7,972 contigs**. The largest contig was **4.71 Mb**, but the N50 was only **13.03 kb**. This means that the assembly contained at least one very large sequence, while much of the remaining community was still split across smaller contigs. That is not unexpected for a real metagenome because the organisms occur at different abundances and may also contain closely related strains that are difficult to separate.
+
+MetaBAT produced **70 bins**. Only **16 bins** had more than 15% estimated completeness, showing that most of the recovered bins were highly fragmented.
+
+## CheckM quality assessment
+
+```{r checkm-table}
+checkm <- data.frame(
+  Bin = c(
+    "metabat.29", "metabat.56", "metabat.57", "metabat.38",
+    "metabat.3", "metabat.12", "metabat.45", "metabat.33",
+    "metabat.70", "metabat.16", "metabat.61", "metabat.65",
+    "metabat.53", "metabat.24", "metabat.10", "metabat.41"
+  ),
+  Marker_lineage = c(
+    "Cyanobacteria", "Clostridiales", "Bacteria", "Bacteria",
+    "Deltaproteobacteria", "algicola", "Proteobacteria", "Clostridiales",
+    "Bacteria", "Bacteria", "Bacteria", "Deltaproteobacteria",
+    "Bacteria", "Bacteria", "Bacteria", "Deltaproteobacteria"
+  ),
+  Completeness = c(
+    97.56, 33.22, 30.28, 29.31,
+    28.18, 27.44, 26.77, 22.60,
+    22.41, 21.55, 21.43, 20.79,
+    19.73, 17.54, 15.52, 15.12
+  ),
+  Contamination = c(
+    0.67, 1.77, 0.00, 0.00,
+    0.13, 0.00, 0.00, 0.00,
+    0.00, 0.00, 0.00, 0.00,
+    0.00, 0.00, 0.00, 0.00
+  )
+)
+
+knitr::kable(
+  checkm,
+  digits = 2,
+  caption = "Table 2. CheckM results for the 16 bins with more than 15% estimated completeness."
+)
+```
+
+```{r checkm-plot, fig.cap="Figure 1. Estimated completeness of the 16 bins selected for downstream analysis. The dashed line shows the 15% selection threshold."}
+plot_order <- order(checkm$Completeness)
+
+par(mar = c(5, 9, 3, 1))
+
+barplot(
+  checkm$Completeness[plot_order],
+  names.arg = checkm$Bin[plot_order],
+  horiz = TRUE,
+  las = 1,
+  xlab = "Estimated completeness (%)",
+  main = "Completeness of selected BBD bins"
+)
+
+abline(v = 15, lty = 2)
+```
+
+`metabat.29` was clearly the strongest bin. It had **97.56% completeness** and only **0.67% contamination**, making it the only near-complete genome recovered in this analysis. The next highest completeness was only 33.22%. This large gap suggests that the dominant organism assembled well, while most of the lower-abundance community remained fragmented.
+
+## Taxonomic composition
+
+```{r taxonomy-table}
+taxonomy <- data.frame(
+  Bin = c(
+    "metabat.29",
+    "metabat.12",
+    "metabat.16",
+    "metabat.38",
+    "metabat.57",
+    "metabat.3",
+    "metabat.41"
+  ),
+  Phylum = c(
+    "Cyanobacteria",
+    "Bacteroidota",
+    "Campylobacterota",
+    "Campylobacterota",
+    "Campylobacterota",
+    "Desulfobacterota",
+    "Desulfobacterota_I"
+  ),
+  Family = c(
+    "Desertifilaceae",
+    "Flavobacteriaceae",
+    "Arcobacteraceae",
+    "Arcobacteraceae",
+    "Arcobacteraceae",
+    "Desulforegulaceae",
+    "Desulfovibrionaceae"
+  ),
+  Genus_or_species = c(
+    "Roseofilum reptotaenium_A",
+    "DT-34",
+    "Poseidonibacter",
+    "Halarcobacter",
+    "Halarcobacter",
+    "Unclassified genus",
+    "Maridesulfovibrio"
+  ),
+  Completeness = c(
+    97.56, 27.44, 21.55, 29.31, 30.28, 28.18, 15.12
+  ),
+  Contamination = c(
+    0.67, 0.00, 0.00, 0.00, 0.00, 0.13, 0.00
+  )
+)
+
+knitr::kable(
+  taxonomy,
+  digits = 2,
+  caption = "Table 3. Curated GTDB-Tk classifications for bins most relevant to the BBD community and pathway interpretation."
+)
+```
+
+The largest and most complete part of the assembly was `metabat.29`, which GTDB-Tk classified as *Roseofilum reptotaenium_A*. This is a cyanobacterium in the family Desertifilaceae and is closely linked with BBD mats.
+
+The other selected bins represented several groups that are also relevant to BBD, including Flavobacteriaceae, Arcobacteraceae, Desulforegulaceae and Desulfovibrionaceae. `metabat.41` was classified as *Maridesulfovibrio*, while `metabat.3` belonged to Desulforegulaceae. These are the strongest taxonomic candidates for sulfate reduction, although both bins were incomplete.
+
+`metabat.10` could not be classified beyond Bacteria because GTDB-Tk reported too few aligned amino acids. This is consistent with its low CheckM completeness of 15.52%.
+
+## Prokka gene annotation
+
+```{r prokka-summary}
+prokka_summary <- read.delim(
+  "prokka_gene_summary.tsv",
+  header = TRUE,
+  stringsAsFactors = FALSE
+)
+
+total_genes <- sum(prokka_summary$Genes)
+genes_with_ec <- sum(prokka_summary$Genes_with_EC)
+ec_percentage <- 100 * genes_with_ec / total_genes
+
+knitr::kable(
+  prokka_summary,
+  caption = "Table 4. Number of Prokka gene records and EC-number annotations in each selected bin."
+)
+```
+
+Across the 16 selected bins, Prokka identified **`r format(total_genes, big.mark = ",")` gene records**. Of these, **`r format(genes_with_ec, big.mark = ",")`** were assigned an EC number, equal to **`r sprintf("%.2f", ec_percentage)`%**.
+
+The EC-number percentage is important because MinPath depends on these enzyme annotations. Around three quarters of the predicted genes did not receive an EC number, so the pathway analysis is likely to miss some real functions.
+
+```{r prokka-plot, fig.cap="Figure 2. Total Prokka gene records in each selected bin. The points show the number of genes that received an EC-number annotation."}
+gene_order <- order(prokka_summary$Genes)
+
+par(mar = c(5, 9, 3, 1))
+
+bar_positions <- barplot(
+  prokka_summary$Genes[gene_order],
+  names.arg = prokka_summary$Bin[gene_order],
+  horiz = TRUE,
+  las = 1,
+  xlab = "Number of gene records",
+  main = "Prokka annotations by bin"
+)
+
+points(
+  prokka_summary$Genes_with_EC[gene_order],
+  bar_positions,
+  pch = 19
+)
+
+legend(
+  "bottomright",
+  legend = c("Total gene records", "Genes with EC numbers"),
+  pch = c(15, 19),
+  bty = "n"
+)
+```
+
+`metabat.29` had the most genes, with **5,561 gene records**, including **1,382 with EC numbers**. This supports the CheckM result that it was the most complete genome recovered.
+
+## MinPath pathway results
+
+```{r minpath-table}
+minpath_results <- data.frame(
+  Pathway = c(
+    "PWY-101: photosynthesis light reactions",
+    "PWY-101: photosynthesis light reactions",
+    "PWY-101: photosynthesis light reactions",
+    "PWY-101: photosynthesis light reactions",
+    "PWY-5360: tetrathionate reduction"
+  ),
+  Bin = c(
+    "metabat.12",
+    "metabat.29",
+    "metabat.33",
+    "metabat.61",
+    "metabat.57"
+  ),
+  Families_found = c(
+    "1 of 4",
+    "4 of 4",
+    "1 of 4",
+    "1 of 4",
+    "1 of 3"
+  ),
+  Retained_by_MinPath = c(
+    "No",
+    "Yes",
+    "Yes",
+    "No",
+    "No"
+  ),
+  Interpretation = c(
+    "Partial signal only",
+    "Strongest evidence; complete family set",
+    "Retained, but only one family detected",
+    "Partial signal only",
+    "Weak and incomplete signal"
+  )
+)
+
+knitr::kable(
+  minpath_results,
+  caption = "Table 5. MinPath results for the two pathways targeted in the workshop."
+)
+```
+
+Four bins contained at least one gene family associated with the photosynthesis light-reaction pathway. However, only `metabat.29` contained **all four of four families**. Its classification as *Roseofilum reptotaenium_A* makes this result biologically consistent with the cyanobacterial role in the BBD mat.
+
+Only `metabat.57` contained a signal for PWY-5360, the tetrathionate-reduction superpathway. It contained only **one of three** families and MinPath did not retain the full pathway. This is therefore weak evidence and should not be treated as proof of a complete tetrathionate-reduction pathway.
+
+# Discussion
+
+## Assembly quality
+
+The assembly recovered a large amount of microbial sequence data, including a 4.71 Mb contig and one near-complete cyanobacterial genome. However, the low N50 and the large number of contigs show that the full community was still fragmented.
+
+The difference between `metabat.29` and the remaining bins is one of the clearest results. The dominant cyanobacterium had enough coverage to assemble into a near-complete genome, while most other community members were recovered only as partial genomes. This shows why a single assembly-wide statistic cannot fully describe metagenome quality. N50 describes overall contiguity, while CheckM gives a more useful estimate of how well individual microbial genomes were recovered.
+
+## Comparison with Sato et al. (2017)
+
+Sato et al. used Illumina short reads to investigate BBD from *Montipora hispida* at Pelorus Island. The current analysis used a subset of Oxford Nanopore reads from *Acropora hyacinthus* at Orpheus Island. The samples, coral hosts, sequencing methods and binning workflows were therefore different, so the comparison is useful but not exact.
+
+```{r sato-comparison}
+sato_comparison <- data.frame(
+  Broad_group = c(
+    "BBD cyanobacterium",
+    "Arcobacteraceae / Campylobacterales",
+    "Flavobacteriaceae"
+  ),
+  This_analysis = c(
+    "metabat.29: Roseofilum reptotaenium_A",
+    "metabat.57: Halarcobacter",
+    "metabat.12: DT-34"
+  ),
+  This_completeness = c(97.56, 30.28, 27.44),
+  This_contamination = c(0.67, 0.00, 0.00),
+  This_genes = c(5561, 963, 834),
+  Sato_bin = c(
+    "Cya2: BBD cyanobacterium",
+    "Cam: Arcobacter",
+    "Fla2: Flavobacteriaceae"
+  ),
+  Sato_completeness = c(99.33, 27.33, 35.20),
+  Sato_contamination = c(0.20, 0.40, 0.90),
+  Sato_genes = c(5452, 659, 1112)
+)
+
+knitr::kable(
+  sato_comparison,
+  digits = 2,
+  caption = "Table 6. Broad comparison with selected genomic bins reported by Sato et al. (2017). The non-cyanobacterial comparisons are at broad taxonomic level and should not be treated as the same genomes."
+)
+```
+
+The strongest match was the cyanobacterium. `metabat.29` was 97.56% complete with 0.67% contamination and 5,561 predicted genes. Sato et al.'s Cya2 bin was 99.33% complete with 0.20% contamination and 5,452 genes. The results are very similar, even though the studies used different samples and sequencing methods. This supports the conclusion that a *Roseofilum*-related cyanobacterium was the dominant and most successfully recovered member of this BBD community.
+
+Broad matches were also found for Arcobacteraceae and Flavobacteriaceae, but these bins were incomplete in both datasets. The present assembly did not recover clear near-complete equivalents for several of the high-completeness Alphaproteobacteria, Cytophagales, Alteromonadaceae and Gammaproteobacteria bins reported by Sato et al. This may reflect differences in the microbial communities, the reduced read subset used here, or the assembly and binning methods.
+
+## Photosynthesis
+
+The MinPath result for photosynthesis was the clearest functional result. `metabat.29` contained all four gene families assigned to PWY-101 and was also the near-complete *Roseofilum* bin. This links the taxonomic and functional results: the dominant cyanobacterium was the main organism with evidence for carrying out the light reactions of photosynthesis.
+
+The three other bins with a PWY-101 match each contained only one of four families. These partial hits are not enough to conclude that those organisms perform complete photosynthesis.
+
+## Sulfur cycling and sulfate reduction
+
+The sulfur result needs more careful interpretation. PWY-5360 represents tetrathionate reduction, which is part of sulfur cycling but is not the same as sulfate reduction. `metabat.57`, classified as *Halarcobacter* in Arcobacteraceae, contained one of three PWY-5360 families. Since MinPath did not retain the complete pathway, this result only suggests limited sulfur-related potential.
+
+Based on taxonomy, `metabat.41` (*Maridesulfovibrio*, Desulfovibrionaceae) and `metabat.3` (Desulforegulaceae) are the most likely sulfate-reduction candidates. Their CheckM completeness values were only 15.12% and 28.18%, so missing sulfate-reduction genes could be caused by incomplete genome recovery rather than true absence. This agrees with the general BBD model, where sulfate-reducing bacteria contribute to sulfide production within the mat.
+
+## Limitations
+
+There are several limitations that affect how strongly these results can be interpreted:
+
+1. **Only a subset of the Nanopore data was analysed.** Lower-abundance genomes may not have had enough coverage for complete assembly.
+2. **Most bins were incomplete.** A pathway can appear absent simply because the relevant genes were not assembled into the bin.
+3. **Only 26.19% of Prokka gene records received EC numbers.** MinPath could only use the genes with recognised enzyme annotations.
+4. **MinPath uses a parsimonious model.** Its output is a prediction of the smallest pathway set that explains the detected enzymes, not direct evidence that a pathway was active.
+5. **The largest unbinned contig was not added as a separate CheckM input in this run.** The workshop guide recommends doing this because MetaBAT can leave the largest contig unbinned. A genome mainly represented by that contig may therefore have been missed from the CheckM and GTDB-Tk results.
+6. **This was one sample from one place and time.** The results should not be treated as a complete description of BBD communities across coral species or reefs.
+
+# Troubleshooting and workflow evaluation
+
+The main technical problems happened during job management and MinPath preparation.
+
+When the GTDB-Tk job first entered the Slurm queue, it showed `InvalidAccount`. The same message appeared for several other users, so I checked the queue again instead of resubmitting the job. The status later changed to running and the job completed normally. This avoided creating duplicate jobs that could overwrite the same output folder.
+
+My first MinPath input loop failed because I pasted the loop more than once into the same terminal command. I checked the output with `ls *.ec | wc -l` and found that no EC files had been created. I then reran one clean loop and confirmed that all 16 input files were present.
+
+I also stopped MinPath with `Ctrl+C` after only five reports had finished. Rather than rerunning completed bins, I used a conditional loop that skipped reports that already existed and ran only the missing ones:
+
+```bash
+while read bin; do
+  if [ ! -s "${bin}.ec.report" ]; then
+    minpath \
+      -ec "${bin}.ec" \
+      -report "${bin}.ec.report" \
+      -details "${bin}.ec.details"
+  fi
 done < ../checkm/bbd_topbins.txt
 ```
 
-The final pathway questions will focus on pathways such as photosynthesis light reactions and tetrathionate reduction.
+The final check returned 16 reports. This was a useful example of checking intermediate outputs before repeating a long workflow.
 
-# Troubleshooting and Workflow Notes
+# Conclusion
 
-Several technical issues were encountered and resolved during this workflow.
+This workflow recovered one near-complete BBD cyanobacterial genome and several partial genomes from other members of the microbial mat. The strongest bin, `metabat.29`, was classified as *Roseofilum reptotaenium_A*, had 97.56% completeness, contained 5,561 predicted genes, and carried the full set of gene families detected for the photosynthesis light-reaction pathway.
 
-## Queue waiting and InvalidAccount messages
+The sulfur-cycling results were less complete. `metabat.57` had a weak tetrathionate-reduction signal, while `metabat.41` and `metabat.3` were the strongest sulfate-reduction candidates based on taxonomy. Their low completeness means that the absence of a complete pathway cannot be treated as evidence that sulfate reduction was absent.
 
-When some Slurm jobs were submitted, they initially showed:
+Overall, the analysis showed how assembly, binning, quality assessment, taxonomy and functional annotation need to be interpreted together. It also showed that strong biological conclusions should be based on both pathway evidence and genome quality, rather than on a single software output.
 
-```text
-PD  InvalidAccount
-```
+# Reproducibility and repository organisation
 
-This also appeared for other students' jobs, so it appeared to be a server scheduling issue rather than a problem with the script. After waiting and checking `squeue` again, the jobs changed to:
-
-```text
-PD  None
-```
-
-and later began running normally.
-
-## Accidentally closing the terminal
-
-The terminal was accidentally terminated during script creation. This did not delete any project files. After reopening the terminal, the workflow continued by returning to the correct folder:
-
-```bash
-cd ~/marine-genomics/checkm
-```
-
-The existing folders and bin files were still present.
-
-## Accidentally typing a folder name as a command
-
-At one point, the folder name was typed directly:
-
-```bash
-bins_bbd
-```
-
-This produced:
-
-```text
-bins_bbd: command not found
-```
-
-This happened because `bins_bbd` is a folder, not a command. The correct way to inspect the folder was:
-
-```bash
-ls bins_bbd
-```
-
-## Nano file saving issue
-
-There was also confusion while saving shell scripts with `nano`. The issue was resolved by saving the script in the correct folder and confirming it existed using:
-
-```bash
-ls -lh run_checkm_bbd.sh
-```
-
-# Reflection
-
-This workshop demonstrated how metagenomic sequencing data can be processed into draft genome bins that represent organisms within a complex microbial community. The workflow showed how assembly, binning, quality assessment, and taxonomic classification are connected.
-
-The Flye assembly produced a large but fragmented metagenome assembly, which reflects the complexity of the black band disease sample. MetaBAT then separated contigs into 70 possible genome bins. CheckM showed that only some of these bins were useful for downstream analysis, with `metabat.29` standing out as the highest quality bin.
-
-This workflow helped me understand why quality control is essential in metagenomics. A bin is not automatically useful just because it was produced by a binning tool. Completeness and contamination need to be assessed before the bin can be interpreted biologically.
-
-In a marine science context, this type of workflow can help investigate coral disease by identifying which microbial groups are present and what metabolic functions they may contribute. This is useful for understanding coral disease processes and the microbial ecology of reef environments.
-
-# Files and Repository Organisation
-
-The important workflow files for this workshop are:
+The main reproducible files retained in the GitHub repository are:
 
 ```text
 04_bbd_metagenomics.Rmd
 flye/run_flye_bbd.sh
 checkm/run_checkm_bbd.sh
-gtdbtk/run_gtdbtk.sh
 checkm/checkm_results_bbd.txt
 checkm/bbd_topbins.txt
+gtdbtk/run_gtdbtk.sh
+prokka/run_prokka.sh
+prokka_gene_summary.tsv
+pathway_summary.txt
 ```
 
-Large files and output folders should not be committed to GitHub, including:
+Large raw and generated files, including FASTQ reads, Flye assemblies, genome bins, GTDB-Tk outputs and Prokka output folders, were excluded using `.gitignore`. This keeps the repository readable while retaining the scripts and summary files needed to understand and reproduce the workflow.
 
-```text
-bbd_0.1.fastq.gz
-flye/bbd/
-metabat/bins_bbd/
-checkm/out/
-gtdbtk/out/
-```
+[View the marine-genomics GitHub repository](https://github.com/Austen2001/marine-genomics)
 
-These files are too large or are generated analysis outputs. The GitHub repository should contain the scripts, documentation, and small summary result files needed to understand and reproduce the workflow.
+# References
 
-# Summary of Completed Results
+Chaumeil, P.-A., Mussig, A. J., Hugenholtz, P., & Parks, D. H. (2020). GTDB-Tk: a toolkit to classify genomes with the Genome Taxonomy Database. *Bioinformatics*, 36(6), 1925–1927. https://doi.org/10.1093/bioinformatics/btz848
 
-| Step | Tool | Result |
-|---|---|---|
-| Assembly | Flye | Completed |
-| Assembly size | assembly-stats | 66,580,369 bp |
-| Number of contigs | assembly-stats | 7,972 |
-| Largest contig | assembly-stats | 4,706,700 bp |
-| N50 | assembly-stats | 13,029 bp |
-| Binning | MetaBAT | 70 bins |
-| Bin quality | CheckM | 70 bins processed |
-| Selected bins | CheckM filter | 16 bins above 15% completeness |
-| Best bin | CheckM | metabat.29 |
-| Best bin completeness | CheckM | 97.56% |
-| Best bin contamination | CheckM | 0.67% |
-| Taxonomy | GTDB-Tk | Submitted / pending |
-| Functional annotation | Prokka | Not completed yet |
-| Pathway analysis | MinPath | Not completed yet |
+Kang, D. D., Froula, J., Egan, R., & Wang, Z. (2015). MetaBAT, an efficient tool for accurately reconstructing single genomes from complex microbial communities. *PeerJ*, 3, e1165. https://doi.org/10.7717/peerj.1165
+
+Parks, D. H., Imelfort, M., Skennerton, C. T., Hugenholtz, P., & Tyson, G. W. (2015). CheckM: assessing the quality of microbial genomes recovered from isolates, single cells, and metagenomes. *Genome Research*, 25(7), 1043–1055. https://doi.org/10.1101/gr.186072.114
+
+Sato, Y., Ling, E. Y. S., Turaev, D., Laffy, P., Weynberg, K. D., Rattei, T., Willis, B. L., & Bourne, D. G. (2017). Unraveling the microbial processes of black band disease in corals through integrated genomics. *Scientific Reports*, 7, 40455. https://doi.org/10.1038/srep40455
+
+Seemann, T. (2014). Prokka: rapid prokaryotic genome annotation. *Bioinformatics*, 30(14), 2068–2069. https://doi.org/10.1093/bioinformatics/btu153
